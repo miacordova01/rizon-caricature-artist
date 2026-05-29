@@ -1,0 +1,43 @@
+robot:
+  ip: "192.168.2.100"          # Flexiv Rizon 4s robot IP — update for your network
+  local_ip: "192.168.2.200"    # IP of the PC running this software
+
+canvas:
+  # Robot-frame position of the canvas surface (where pen tip touches paper).
+  # X = distance in front of robot base, Y = lateral, Z = height (metres).
+  position: [0.65, 0.0, 1.10]  # [x, y, z] of canvas centre
+  normal: [-1.0, 0.0, 0.0]     # canvas normal pointing toward robot
+  width:  0.30                  # canvas width  (Y extent, metres)
+  height: 0.40                  # canvas height (Z extent, metres)
+
+pen:
+  tip_offset: [0.0, 0.0, 0.150]   # pen tip in flange frame (metres)
+  press_force: 2.5                 # contact force in canvas-normal direction (N)
+  lift_distance: 0.050             # how far pen lifts between strokes (metres)
+
+  # Flange orientation when pen points toward canvas (+X world direction).
+  # Expressed as [Rx, Ry, Rz] intrinsic Euler angles in DEGREES (Flexiv convention).
+  # Ry = 90 rotates flange Z-axis into world X-axis.
+  # Verify against your physical setup — adjust if pen is tilted.
+  drawing_orientation_deg: [0.0, 90.0, 0.0]
+
+motion:
+  approach_speed: 0.08     # m/s — speed approaching the canvas
+  travel_speed:   0.12     # m/s — pen-up travel between strokes
+  drawing_speed:  0.03     # m/s — pen-on-canvas drawing speed
+  max_accel:      0.5      # m/s² — acceleration limit for all moves
+  waypoint_tol:   0.003    # m    — distance tolerance to declare waypoint reached
+
+camera:
+  device_id: 0             # OpenCV device index (0 = first webcam / RealSense)
+  width:  1280
+  height:  720
+  fps:      30
+  face_hold_frames: 10     # frames face must be visible before capture triggers
+
+drawing:
+  canvas_margin:  0.025    # metres — keep strokes this far from canvas edges
+  scale:          0.85     # face-to-canvas scale factor (1.0 = full canvas height)
+  caricature_eye_scale:    1.45   # eye enlargement factor
+  caricature_nose_scale:   1.20   # nose enlargement factor
+  caricature_mouth_scale:  1.25   # mouth width enlargement factor

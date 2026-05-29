@@ -1,0 +1,12 @@
+# rizon-caricature-artist runtime dependencies
+#
+# flexivrdk must be installed from the Flexiv RDK wheel provided with the
+# robot SDK — it is not on PyPI.  Install with:
+#   pip install flexivrdk-*.whl
+#
+# All other packages are available from PyPI.
+
+opencv-python>=4.8
+mediapipe>=0.10
+numpy>=1.24
+PyYAML>=6.0
