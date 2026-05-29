@@ -17,6 +17,7 @@ import flexivrdk
 
 from vision.camera import Camera
 from vision.face_detector import FaceDetector
+from vision.head_segmenter import HeadSegmenter
 from robot.pen_controller import PenController
 from robot.stroke_executor import StrokeExecutor
 from robot.state_machine import CaricatureStateMachine
@@ -92,7 +93,11 @@ def main() -> int:
                      cam_cfg["height"],
                      cam_cfg["fps"])
     camera.open()
-    face_detector = FaceDetector()
+    face_detector  = FaceDetector()
+    head_segmenter = HeadSegmenter(
+        confidence = cfg.get("head_segmentation", {}).get("confidence", 0.55),
+        max_pts    = cfg.get("head_segmentation", {}).get("contour_pts", 80),
+    )
 
     # ── Robot controllers ─────────────────────────────────────────────────────
     pen_ctrl    = PenController(robot, transform, cfg)
@@ -100,13 +105,14 @@ def main() -> int:
 
     # ── State machine ─────────────────────────────────────────────────────────
     sm = CaricatureStateMachine(
-        robot        = robot,
-        camera       = camera,
-        face_detector= face_detector,
-        pen_ctrl     = pen_ctrl,
-        stroke_exec  = stroke_exec,
-        transform    = transform,
-        cfg          = cfg,
+        robot          = robot,
+        camera         = camera,
+        face_detector  = face_detector,
+        head_segmenter = head_segmenter,
+        pen_ctrl       = pen_ctrl,
+        stroke_exec    = stroke_exec,
+        transform      = transform,
+        cfg            = cfg,
     )
 
     try:
@@ -119,6 +125,7 @@ def main() -> int:
         log.info("Shutting down")
         camera.close()
         face_detector.close()
+        head_segmenter.close()
 
     return 0 if sm.state.value != "ERROR" else 1
 
