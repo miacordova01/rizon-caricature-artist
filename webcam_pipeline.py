@@ -27,6 +27,7 @@ import time
 import cv2
 import yaml
 
+from pipeline.outliner import generate_portrait_from_frame, _FCP_AVAILABLE
 from pipeline.portrait_paths import generate_portrait_paths, save_portrait_json
 from pipeline.renderer import render_portrait, add_overlay_text
 from vision.camera import Camera
@@ -85,16 +86,24 @@ def _banner(img, text, color, alpha=0.55):
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 
 def run_capture(frame, lm, head_segmenter, drawing_cfg, output_dir, session):
-    log.info("Running head segmentation…")
-    head_outline = head_segmenter.get_outline(frame)
-    if head_outline:
-        log.info("  Head outline: %d pts", len(head_outline))
+    if _FCP_AVAILABLE:
+        # ── High-quality path: Portrait-Outliner segmentation ─────────────────
+        # Uses pixel-level semantic segmentation (hair, skin, eyes, nose, lips)
+        # to produce portraits that follow your actual face contours.
+        log.info("Running Portrait-Outliner segmentation pipeline…")
+        log.info("  (First run downloads BiSeNet model ~50 MB — please wait)")
+        strokes = generate_portrait_from_frame(frame)
+        if not strokes:
+            log.warning("  Outliner returned no strokes — face not detected in crop")
+            return render_portrait([])   # blank canvas
     else:
-        log.warning("  Head segmentation failed — using face oval only")
+        # ── Fallback: landmark-based pipeline ─────────────────────────────────
+        log.warning("face-crop-plus not installed — using landmark fallback. "
+                    "pip install face-crop-plus scikit-image  for better portraits")
+        head_outline = head_segmenter.get_outline(frame)
+        strokes = generate_portrait_paths(lm, drawing_cfg,
+                                          head_outline=head_outline, simplify=True)
 
-    log.info("Generating portrait paths…")
-    strokes = generate_portrait_paths(lm, drawing_cfg,
-                                      head_outline=head_outline, simplify=True)
     log.info("  %d strokes, %d total waypoints",
              len(strokes), sum(len(s["points"]) for s in strokes))
 
