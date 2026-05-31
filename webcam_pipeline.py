@@ -100,7 +100,7 @@ def run_capture(frame, lm, head_segmenter, drawing_cfg, output_dir, session):
 
     portrait_img = render_portrait(strokes)
     portrait_img = add_overlay_text(portrait_img,
-                                    f"Flexiv Picasso — portrait {session:03d}",
+                                    f"Flexiv Picasso  portrait {session:03d}",
                                     pos=(16, 30))
 
     json_path = os.path.join(output_dir, f"portrait_{session:03d}.json")

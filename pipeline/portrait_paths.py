@@ -55,8 +55,9 @@ from typing import Any, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
-from vision.artistic import (smooth_curve, generate_eyelashes,
-                             generate_iris, generate_hair_lines)
+from vision.artistic import (smooth_curve, extend_face_oval_to_head,
+                             generate_eyelashes, generate_iris,
+                             generate_hair_lines)
 from vision.caricature import exaggerate
 from vision.face_detector import FaceLandmarks
 
@@ -307,28 +308,29 @@ def generate_portrait_paths(
             "points": uv_pts,
         })
 
-    # ── Head shape (outermost) ────────────────────────────────────────────────
-    cropped_outline = None
-    if head_outline:
-        # Strip shoulders / body — keep only the head+hair zone
-        cropped_outline = _crop_to_head_zone(head_outline, landmarks)
-        if cropped_outline is None:
-            cropped_outline = head_outline      # fallback: full outline
+    # ── Head outline (always built from face landmarks — segmenter-independent) ──
+    #
+    # The image segmenter captures shoulders / full body and is unreliable for
+    # the head silhouette.  Instead we extend the MediaPipe face oval upward and
+    # outward to create a skull + hair dome, which is always proportional to the
+    # detected face.  Segmenter output (head_outline arg) is no longer used for
+    # the outline shape but can still influence hair-line anchors below.
+    #
+    head_pts     = extend_face_oval_to_head(
+        landmarks.face_oval, landmarks.bbox_min, landmarks.bbox_max,
+        hair_lift=0.60, side_expand=0.20)
+    smoothed_hd  = smooth_curve(head_pts, n_total=120, closed=True)
+    outline      = _simplify(smoothed_hd, closed=True) if simplify else smoothed_hd
+    _idx[0] += 1
+    raw.append({
+        "id":     f"stroke_{_idx[0]:04d}",
+        "label":  "head_outline",
+        "closed": True,
+        "points": _to_uv(_closed_pts(outline)),
+    })
 
-        # Smooth then simplify the head silhouette
-        smoothed = smooth_curve(cropped_outline, n_total=120, closed=True)
-        outline  = _simplify(smoothed, closed=True) if simplify else smoothed
-        _idx[0] += 1
-        raw.append({
-            "id":     f"stroke_{_idx[0]:04d}",
-            "label":  "head_outline",
-            "closed": True,
-            "points": _to_uv(_closed_pts(outline)),
-        })
-        # Face oval inside the head outline (subtle guide)
-        add("face_oval", exag.face_oval, closed=True, smooth_n=80)
-    else:
-        add("face_oval", exag.face_oval, closed=True, smooth_n=80)
+    # Face oval (drawn inside the head as the face boundary)
+    add("face_oval", exag.face_oval, closed=True, smooth_n=80)
 
     # ── Eyebrows ──────────────────────────────────────────────────────────────
     add("left_eyebrow",  exag.left_eyebrow,  smooth_n=40)
@@ -363,12 +365,11 @@ def generate_portrait_paths(
     add("lips_outer", exag.lips_outer, closed=True, smooth_n=60)
     add("lips_inner", exag.lips_inner, closed=True, smooth_n=60)
 
-    # ── Hair flow lines ───────────────────────────────────────────────────────
-    if cropped_outline:
-        for strand in generate_hair_lines(
-                cropped_outline, landmarks.bbox_min, landmarks.bbox_max,
-                n_per_side=7, max_len=0.28):
-            add_raw_pts("hair_flow", _to_uv(strand))
+    # ── Hair flow lines (driven by synthetic head outline) ───────────────────
+    for strand in generate_hair_lines(
+            head_pts, landmarks.bbox_min, landmarks.bbox_max,
+            n_per_side=7, max_len=0.28):
+        add_raw_pts("hair_flow", _to_uv(strand))
 
     # ── Reorder strokes to minimise pen travel (contract req. 5) ──────────────
     ordered = _order_strokes(raw)

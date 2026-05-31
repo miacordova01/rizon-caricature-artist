@@ -2,13 +2,14 @@
 vision/artistic.py
 Artistic stroke generation utilities.
 
-Provides four tools that turn raw MediaPipe landmark polygons into the
+Provides five tools that turn raw MediaPipe landmark polygons into the
 kind of clean, expressive lines you'd expect from a skilled illustrator:
 
-  smooth_curve()         — Catmull-Rom spline through any point list
-  generate_eyelashes()   — radiating lash strokes on the upper eyelid
-  generate_iris()        — circle for the iris / pupil
-  generate_hair_lines()  — flowing strands down the sides of the head
+  smooth_curve()              — Catmull-Rom spline through any point list
+  extend_face_oval_to_head()  — generates a full head outline from face landmarks
+  generate_eyelashes()        — radiating lash strokes on the upper eyelid
+  generate_iris()             — circle for the iris / pupil
+  generate_hair_lines()       — flowing strands down the sides of the head
 
 All coordinates are MediaPipe image space: (x, y) top-left origin, [0, 1].
 The caller converts to Bubble's UV schema via _to_uv() in portrait_paths.py.
@@ -74,6 +75,62 @@ def smooth_curve(pts: List[np.ndarray],
                 (2*p0 - 5*p1 + 4*p2 - p3) * t2 +
                 (-p0 + 3*p1 - 3*p2 + p3) * t3
             ))
+
+    return result
+
+
+# ── Synthetic head outline ────────────────────────────────────────────────────
+
+def extend_face_oval_to_head(
+        face_oval:   List[np.ndarray],
+        bbox_min:    np.ndarray,
+        bbox_max:    np.ndarray,
+        hair_lift:   float = 0.60,
+        side_expand: float = 0.20) -> List[np.ndarray]:
+    """
+    Build a full head outline (skull + hair zone) by extending the face oval.
+
+    MediaPipe's face oval follows the face closely but stops at the hairline —
+    it gives no skull or hair above the forehead.  This function pushes every
+    upper-face point upward (for the hair dome) and slightly outward (for head
+    width), turning the face oval into a complete head silhouette without needing
+    the image segmenter.
+
+    Transformation rules (applied continuously, not as a binary threshold):
+      • Points above the face centre → pushed up by up to hair_lift × face_height
+        and outward by up to side_expand × face_width
+      • Points below the face centre (jaw, chin) → unchanged
+
+    Args:
+        face_oval:    Face oval landmark points  (image-space x, y).
+        bbox_min:     Top-left corner of face bounding box [x1, y1].
+        bbox_max:     Bottom-right corner of face bounding box [x2, y2].
+        hair_lift:    Vertical lift at the topmost point as a fraction of face height.
+        side_expand:  Horizontal expansion at the topmost point as a fraction of face width.
+
+    Returns:
+        Extended point list — same length and ordering as face_oval.
+    """
+    pts    = [np.asarray(p, dtype=float) for p in face_oval]
+    cx     = float((bbox_min[0] + bbox_max[0]) / 2.0)
+    cy     = float((bbox_min[1] + bbox_max[1]) / 2.0)
+    face_h = float(bbox_max[1] - bbox_min[1])
+    half_h = face_h / 2.0 + 1e-9
+
+    result = []
+    for p in pts:
+        # t_up: 0 at the face centre or below it, 1 at the very top of the face
+        dy   = cy - float(p[1])          # positive → point is above centre
+        t_up = max(0.0, min(1.0, dy / half_h))
+
+        new_y = float(p[1]) - face_h * hair_lift * t_up
+        dx    = float(p[0]) - cx
+        new_x = cx + dx * (1.0 + side_expand * t_up)
+
+        result.append(np.array([
+            max(0.0, min(1.0, new_x)),
+            max(0.0, min(1.0, new_y)),
+        ]))
 
     return result
 
