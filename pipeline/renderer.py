@@ -65,10 +65,12 @@ def render_portrait(
         label     = stroke.get("label", "")
         thickness = _STYLE.get(label, _DEFAULT_THICKNESS)
 
-        # Scale normalised [0,1] → pixel coordinates
+        # Scale normalised [0,1] → pixel coordinates.
+        # Points are in bottom-left-origin schema (v=1 = top of portrait).
+        # Screen coords have y=0 at top, so flip v: screen_y = (1 - v) * draw_h
         pixel_pts = [
-            (int(x * draw_w + ox), int(y * draw_h + oy))
-            for x, y in pts
+            (int(u * draw_w + ox), int((1.0 - v) * draw_h + oy))
+            for u, v in pts
         ]
 
         # Draw as polyline
