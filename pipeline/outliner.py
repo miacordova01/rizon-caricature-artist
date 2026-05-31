@@ -38,6 +38,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
+from vision.artistic import smooth_curve   # Catmull-Rom spline for smooth lines
+
 log = logging.getLogger(__name__)
 
 PortraitStroke = Dict[str, Any]
@@ -165,19 +167,44 @@ def _outline_to_strokes(outline: Optional[np.ndarray],
     for contour in contours:
         if len(contour) < min_pts:
             continue
-        eps    = 0.003 * cv2.arcLength(contour, True)
-        approx = cv2.approxPolyDP(contour, max(eps, 1.0), True)
+
+        is_closed = cv2.contourArea(contour) > 20
+
+        # 1. Light RDP — just removes blatant duplicate pixels, keeps most points
+        #    so the spline has enough control points to be accurate.
+        eps    = 0.0008 * cv2.arcLength(contour, is_closed)
+        approx = cv2.approxPolyDP(contour, max(eps, 0.5), is_closed)
         if len(approx) < 2:
             continue
 
-        uv_pts = [
-            [round(float(p[0][0]) / w, 3),
-             round(1.0 - float(p[0][1]) / h, 3)]   # flip y → bottom-left origin
+        # 2. Convert pixel coords → normalised [0,1] float points
+        norm_pts = [
+            np.array([float(p[0][0]) / w, float(p[0][1]) / h])
             for p in approx
+        ]
+
+        # 3. Catmull-Rom spline — turns staircase pixel edges into smooth curves.
+        #    n_total scales with contour size so tiny details aren't over-smoothed.
+        n_smooth = max(12, len(norm_pts) * 3)
+        smooth   = smooth_curve(norm_pts, n_total=n_smooth, closed=is_closed)
+
+        # 4. Second RDP pass after smoothing — reduces redundant collinear points.
+        arr2   = (np.array([[p[0], p[1]] for p in smooth], dtype=np.float32)
+                  * 10_000).astype(np.int32).reshape(-1, 1, 2)
+        eps2   = cv2.arcLength(arr2, is_closed) * 0.002
+        approx2 = cv2.approxPolyDP(arr2, max(eps2, 1.0), is_closed)
+        if len(approx2) < 2:
+            continue
+
+        # 5. Back to [0,1] and flip y → bottom-left origin
+        uv_pts = [
+            [round(float(p[0][0]) / 10_000, 3),
+             round(1.0 - float(p[0][1]) / 10_000, 3)]
+            for p in approx2
         ]
         strokes.append({
             "label":  label,
-            "closed": cv2.contourArea(contour) > 0,
+            "closed": is_closed,
             "points": uv_pts,
         })
 
