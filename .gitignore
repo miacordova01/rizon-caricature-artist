@@ -10,4 +10,6 @@ venv/
 meshes/*.blend
 meshes/*.stl
 meshes/*.obj
+models/*.task
+models/*.tflite
 *.log
