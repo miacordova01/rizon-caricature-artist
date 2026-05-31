@@ -1,26 +1,38 @@
 """
 pipeline/portrait_paths.py
-Generates labeled portrait strokes in normalised [0, 1] image coordinates
-and serialises them to portrait_paths.json.
+Generates labeled portrait strokes and serialises them to portrait_paths.json.
 
-Coordinate convention (locked schema):
-  Origin = top-left of the captured frame
-  x ∈ [0, 1]  increases rightward
-  y ∈ [0, 1]  increases downward
-  (These are the raw MediaPipe normalised coords — no robot transform applied.)
+Locked coordinate schema (matches Bubble's robot pipeline):
+  Origin     = bottom-left
+  u-axis     = left → right,  u ∈ [0, 1]
+  v-axis     = bottom → top,  v ∈ [0, 1]   ← NOTE: flipped from image-y
 
-JSON schema v1.0
-----------------
+  MediaPipe gives (x, y) with top-left origin, y increasing downward.
+  Conversion:  u = x,   v = 1.0 - y
+
+JSON schema v1
+--------------
 {
-  "version": "1.0",
-  "timestamp": "<ISO-8601>",
-  "source": "webcam" | "static_image",
-  "image_shape": [height, width],
+  "version": 1,
+  "name": "<portrait name>",
+  "source": {
+    "type": "cv_lineart",
+    "image_width_px": <int>,
+    "image_height_px": <int>
+  },
+  "coordinate_system": {
+    "units": "normalized_page",
+    "origin": "bottom_left",
+    "u_axis": "left_to_right",
+    "v_axis": "bottom_to_top",
+    "bounds": {"u_min": 0.0, "u_max": 1.0, "v_min": 0.0, "v_max": 1.0}
+  },
   "strokes": [
     {
-      "label":  "<feature name>",
+      "id":     "stroke_NNNN",
+      "label":  "<feature name>",   # extra field for robot feature routing
       "closed": true | false,
-      "points": [[x1, y1], [x2, y2], ...]   # normalised [0, 1]
+      "points": [[u1, v1], [u2, v2], ...]
     },
     ...
   ]
@@ -43,7 +55,8 @@ PortraitStroke = Dict[str, Any]
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _to_list(pts: List[np.ndarray]) -> List[List[float]]:
-    return [[round(float(p[0]), 5), round(float(p[1]), 5)] for p in pts]
+    """Convert to [u, v] with bottom-left origin (v = 1 - image_y)."""
+    return [[round(float(p[0]), 3), round(1.0 - float(p[1]), 3)] for p in pts]
 
 
 def _closed(pts: List[np.ndarray]) -> List[np.ndarray]:
@@ -101,15 +114,34 @@ def generate_portrait_paths(
             p = _closed(p)
         strokes.append({"label": label, "closed": closed, "points": _to_list(p)})
 
+    stroke_idx = [0]   # mutable counter for stroke IDs
+
+    def add(label: str, pts: List[np.ndarray], closed: bool = False) -> None:
+        if not pts:
+            return
+        p = _simplify(pts, closed=closed) if simplify else pts
+        if len(p) < 2:
+            return
+        if closed:
+            p = _closed(p)
+        stroke_idx[0] += 1
+        strokes.append({
+            "id":     f"stroke_{stroke_idx[0]:04d}",
+            "label":  label,
+            "closed": closed,
+            "points": _to_list(p),
+        })
+
     # ── Outer head shape ──────────────────────────────────────────────────────
     if head_outline:
         outline = _simplify(head_outline, closed=True) if simplify else head_outline
+        stroke_idx[0] += 1
         strokes.append({
+            "id":     f"stroke_{stroke_idx[0]:04d}",
             "label":  "head_outline",
             "closed": True,
             "points": _to_list(_closed(outline)),
         })
-        # Inner face/jaw boundary (visible inside the hair)
         add("face_oval",      exag.face_oval,      closed=True)
     else:
         add("face_oval",      exag.face_oval,      closed=True)
@@ -127,22 +159,45 @@ def generate_portrait_paths(
     return strokes
 
 
-def save_portrait_json(strokes:    List[PortraitStroke],
-                       path:       str,
-                       source:     str = "webcam",
-                       image_shape: Optional[tuple] = None) -> None:
-    """Serialise strokes to *path* in the locked JSON schema."""
-    payload: Dict[str, Any] = {
-        "version":     "1.0",
-        "timestamp":   datetime.datetime.now().isoformat(),
-        "source":      source,
-        "strokes":     strokes,
-    }
-    if image_shape:
-        payload["image_shape"] = list(image_shape[:2])   # [height, width]
+def save_portrait_json(strokes:     List[PortraitStroke],
+                       path:        str,
+                       name:        str = "portrait",
+                       source_type: str = "cv_lineart",
+                       image_wh:    Optional[tuple] = None) -> None:
+    """
+    Serialise strokes to *path* in the locked schema (matches Bubble's robot pipeline).
 
+    Args:
+        strokes:     Output of generate_portrait_paths().
+        path:        Output file path.
+        name:        Portrait name, e.g. 'face_lineart_001'.
+        source_type: Typically 'cv_lineart'.
+        image_wh:    (width, height) of source image in pixels, or None.
+    """
+    w, h = (image_wh[0], image_wh[1]) if image_wh else (1024, 1024)
+    payload: Dict[str, Any] = {
+        "version": 1,
+        "name":    name,
+        "source": {
+            "type":             source_type,
+            "image_width_px":  int(w),
+            "image_height_px": int(h),
+        },
+        "coordinate_system": {
+            "units":   "normalized_page",
+            "origin":  "bottom_left",
+            "u_axis":  "left_to_right",
+            "v_axis":  "bottom_to_top",
+            "bounds": {
+                "u_min": 0.0, "u_max": 1.0,
+                "v_min": 0.0, "v_max": 1.0,
+            },
+        },
+        "strokes": strokes,
+    }
     with open(path, "w") as f:
         json.dump(payload, f, indent=2)
+    return payload
 
 
 def load_portrait_json(path: str) -> List[PortraitStroke]:
