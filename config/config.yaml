@@ -42,7 +42,7 @@ drawing:
   caricature_brow_lift:    1.25   # eyebrows pushed up/out from each pupil
   caricature_nose_scale:   1.35   # nose tip enlarged from nasal root
   caricature_mouth_scale:  1.50   # lips stretched horizontally from centroid
-  caricature_jaw_scale:    1.15   # lower face elongated downward from nose level
+  caricature_jaw_scale:    1.05   # lower face elongated downward from nose level
 
 head_segmentation:
   confidence:   0.55       # mask threshold — raise if background bleeds in

@@ -91,6 +91,99 @@ def _simplify(pts: List[np.ndarray], epsilon_frac: float = 0.004,
     return [np.array([p[0][0] / 10_000, p[0][1] / 10_000]) for p in approx]
 
 
+# ── Head-zone crop ────────────────────────────────────────────────────────────
+
+def _crop_to_head_zone(
+        head_outline:  List[np.ndarray],
+        face_lm:       "FaceLandmarks",
+        hair_above:    float = 0.80,
+        side_margin:   float = 0.55,
+        chin_margin:   float = 0.10) -> Optional[List[np.ndarray]]:
+    """
+    Remove shoulder/body points from the segmentation contour.
+
+    Keeps only the points that fall within a generous bounding zone around
+    the detected face — hair above the forehead, a little below the chin,
+    and some margin on each side.  Points outside this zone are almost
+    certainly neck/shoulders, which produce the ugly A-frame triangle.
+
+    Coordinates are in MediaPipe image space: (x, y) top-left origin ∈ [0,1].
+
+    Args:
+        head_outline: Raw contour from HeadSegmenter (image-space x,y).
+        face_lm:      Detected FaceLandmarks (provides bbox_min/max).
+        hair_above:   How far above the face box top to include (fraction of face height).
+        side_margin:  How much wider than the face box to keep on each side (fraction of fw).
+        chin_margin:  How far below the face box bottom to keep (fraction of face height).
+
+    Returns:
+        Filtered contour (≥6 pts) or None if too few points survive the crop.
+    """
+    bmin = face_lm.bbox_min      # (x1, y1) — top-left of face box
+    bmax = face_lm.bbox_max      # (x2, y2) — bottom-right
+    fw   = bmax[0] - bmin[0]     # face width
+    fh   = bmax[1] - bmin[1]     # face height
+
+    x1 = max(0.0, bmin[0] - fw * side_margin)
+    x2 = min(1.0, bmax[0] + fw * side_margin)
+    y1 = max(0.0, bmin[1] - fh * hair_above)   # up above forehead for hair
+    y2 = min(1.0, bmax[1] + fh * chin_margin)  # just below chin
+
+    cropped = [p for p in head_outline if x1 <= float(p[0]) <= x2 and y1 <= float(p[1]) <= y2]
+    return cropped if len(cropped) >= 6 else None
+
+
+# ── Canvas auto-scale ──────────────────────────────────────────────────────────
+
+def _auto_scale_strokes(
+        strokes: List[PortraitStroke],
+        margin:  float = 0.05) -> List[PortraitStroke]:
+    """
+    Uniformly scale and centre all strokes so the drawing fills the canvas.
+
+    After exaggeration and coordinate conversion, the face often occupies
+    only the centre 50-60% of the page.  This function stretches the whole
+    composition to fill [margin, 1-margin] on both axes while preserving
+    aspect ratio, so the portrait always looks bold and properly sized.
+
+    Operates on (u, v) bottom-left-origin coordinates (already converted).
+
+    Args:
+        strokes: List of stroke dicts with "points" in UV space.
+        margin:  Fraction of canvas to leave as border on each side.
+
+    Returns:
+        New list of stroke dicts with rescaled points.
+    """
+    all_pts = [pt for s in strokes for pt in s["points"]]
+    if not all_pts:
+        return strokes
+
+    us    = [p[0] for p in all_pts]
+    vs    = [p[1] for p in all_pts]
+    u_min, u_max = min(us), max(us)
+    v_min, v_max = min(vs), max(vs)
+
+    u_span = u_max - u_min or 1.0
+    v_span = v_max - v_min or 1.0
+
+    fit   = 1.0 - 2 * margin
+    scale = min(fit / u_span, fit / v_span)   # uniform — preserves aspect ratio
+
+    u_mid = (u_min + u_max) / 2
+    v_mid = (v_min + v_max) / 2
+
+    result = []
+    for s in strokes:
+        new_pts = [
+            [round((p[0] - u_mid) * scale + 0.5, 3),
+             round((p[1] - v_mid) * scale + 0.5, 3)]
+            for p in s["points"]
+        ]
+        result.append({**s, "points": new_pts})
+    return result
+
+
 # ── Stroke-ordering: greedy nearest-neighbour ─────────────────────────────────
 
 def _dist2(a: Tuple[float, float], b: List[float]) -> float:
@@ -191,7 +284,11 @@ def generate_portrait_paths(
 
     # ── Head shape (outermost) ────────────────────────────────────────────────
     if head_outline:
-        outline = _simplify(head_outline, closed=True) if simplify else head_outline
+        # Strip shoulders / body — keep only the head+hair zone
+        cropped = _crop_to_head_zone(head_outline, landmarks)
+        if cropped is None:
+            cropped = head_outline          # fallback: use full outline as-is
+        outline = _simplify(cropped, closed=True) if simplify else cropped
         _idx[0] += 1
         raw.append({
             "id":     f"stroke_{_idx[0]:04d}",
@@ -214,7 +311,10 @@ def generate_portrait_paths(
     add("lips_inner",    exag.lips_inner,    closed=True)
 
     # ── Reorder strokes to minimise pen travel (contract req. 5) ──────────────
-    return _order_strokes(raw)
+    ordered = _order_strokes(raw)
+
+    # ── Auto-scale to fill the canvas (fixes tiny-face issue) ─────────────────
+    return _auto_scale_strokes(ordered, margin=0.05)
 
 
 def save_portrait_json(strokes:     List[PortraitStroke],
