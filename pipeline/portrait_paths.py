@@ -55,6 +55,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
+from vision.artistic import (smooth_curve, generate_eyelashes,
+                             generate_iris, generate_hair_lines)
 from vision.caricature import exaggerate
 from vision.face_detector import FaceLandmarks
 
@@ -266,10 +268,20 @@ def generate_portrait_paths(
     raw:   List[PortraitStroke] = []
     _idx   = [0]
 
-    def add(label: str, pts: List[np.ndarray], closed: bool = False) -> None:
+    def add(label: str, pts: List[np.ndarray],
+            closed: bool = False, smooth_n: int = 60) -> None:
+        """
+        Smooth → simplify → convert → append one stroke.
+
+        smooth_n controls Catmull-Rom resolution before RDP simplification.
+        Higher values preserve more curve detail; lower values draw faster.
+        """
         if not pts:
             return
-        p = _simplify(pts, closed=closed) if simplify else list(pts)
+        # 1. Catmull-Rom spline: turns the landmark polygon into a smooth curve
+        p = smooth_curve(pts, n_total=smooth_n, closed=closed) if smooth_n > 0 else list(pts)
+        # 2. RDP simplification: prunes redundant points while keeping shape
+        p = _simplify(p, closed=closed) if simplify else p
         if len(p) < 2:
             return
         if closed:
@@ -282,13 +294,30 @@ def generate_portrait_paths(
             "points": _to_uv(p),
         })
 
+    def add_raw_pts(label: str, uv_pts: List[List[float]],
+                    closed: bool = False) -> None:
+        """Append a stroke whose points are already in UV space."""
+        if len(uv_pts) < 2:
+            return
+        _idx[0] += 1
+        raw.append({
+            "id":     f"stroke_{_idx[0]:04d}",
+            "label":  label,
+            "closed": closed,
+            "points": uv_pts,
+        })
+
     # ── Head shape (outermost) ────────────────────────────────────────────────
+    cropped_outline = None
     if head_outline:
         # Strip shoulders / body — keep only the head+hair zone
-        cropped = _crop_to_head_zone(head_outline, landmarks)
-        if cropped is None:
-            cropped = head_outline          # fallback: use full outline as-is
-        outline = _simplify(cropped, closed=True) if simplify else cropped
+        cropped_outline = _crop_to_head_zone(head_outline, landmarks)
+        if cropped_outline is None:
+            cropped_outline = head_outline      # fallback: full outline
+
+        # Smooth then simplify the head silhouette
+        smoothed = smooth_curve(cropped_outline, n_total=120, closed=True)
+        outline  = _simplify(smoothed, closed=True) if simplify else smoothed
         _idx[0] += 1
         raw.append({
             "id":     f"stroke_{_idx[0]:04d}",
@@ -296,19 +325,50 @@ def generate_portrait_paths(
             "closed": True,
             "points": _to_uv(_closed_pts(outline)),
         })
-        add("face_oval",     exag.face_oval,     closed=True)
+        # Face oval inside the head outline (subtle guide)
+        add("face_oval", exag.face_oval, closed=True, smooth_n=80)
     else:
-        add("face_oval",     exag.face_oval,     closed=True)
+        add("face_oval", exag.face_oval, closed=True, smooth_n=80)
 
-    # ── Facial features ───────────────────────────────────────────────────────
-    add("left_eyebrow",  exag.left_eyebrow)
-    add("right_eyebrow", exag.right_eyebrow)
-    add("left_eye",      exag.left_eye,      closed=True)
-    add("right_eye",     exag.right_eye,     closed=True)
-    add("nose_bridge",   exag.nose_bridge)
-    add("nose_tip",      exag.nose_tip)
-    add("lips_outer",    exag.lips_outer,    closed=True)
-    add("lips_inner",    exag.lips_inner,    closed=True)
+    # ── Eyebrows ──────────────────────────────────────────────────────────────
+    add("left_eyebrow",  exag.left_eyebrow,  smooth_n=40)
+    add("right_eyebrow", exag.right_eyebrow, smooth_n=40)
+
+    # ── Eyes (outline) ────────────────────────────────────────────────────────
+    add("left_eye",  exag.left_eye,  closed=True, smooth_n=60)
+    add("right_eye", exag.right_eye, closed=True, smooth_n=60)
+
+    # ── Iris circles ─────────────────────────────────────────────────────────
+    if exag.left_pupil is not None and exag.left_eye:
+        iris_l = generate_iris(exag.left_pupil, exag.left_eye)
+        if iris_l:
+            add_raw_pts("left_iris", _to_uv(iris_l), closed=True)
+
+    if exag.right_pupil is not None and exag.right_eye:
+        iris_r = generate_iris(exag.right_pupil, exag.right_eye)
+        if iris_r:
+            add_raw_pts("right_iris", _to_uv(iris_r), closed=True)
+
+    # ── Eyelashes ─────────────────────────────────────────────────────────────
+    for lash in generate_eyelashes(exag.left_eye,  n_lashes=11):
+        add_raw_pts("left_eyelash",  _to_uv(lash))
+    for lash in generate_eyelashes(exag.right_eye, n_lashes=11):
+        add_raw_pts("right_eyelash", _to_uv(lash))
+
+    # ── Nose ─────────────────────────────────────────────────────────────────
+    add("nose_bridge", exag.nose_bridge, smooth_n=20)
+    add("nose_tip",    exag.nose_tip,    smooth_n=30)
+
+    # ── Lips ─────────────────────────────────────────────────────────────────
+    add("lips_outer", exag.lips_outer, closed=True, smooth_n=60)
+    add("lips_inner", exag.lips_inner, closed=True, smooth_n=60)
+
+    # ── Hair flow lines ───────────────────────────────────────────────────────
+    if cropped_outline:
+        for strand in generate_hair_lines(
+                cropped_outline, landmarks.bbox_min, landmarks.bbox_max,
+                n_per_side=7, max_len=0.28):
+            add_raw_pts("hair_flow", _to_uv(strand))
 
     # ── Reorder strokes to minimise pen travel (contract req. 5) ──────────────
     ordered = _order_strokes(raw)

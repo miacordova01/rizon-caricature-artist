@@ -16,16 +16,27 @@ PortraitStroke = Dict[str, Any]
 
 # Stroke style per feature label (thickness in pixels at 800-wide output)
 _STYLE: Dict[str, int] = {
-    "head_outline":  2,
-    "face_oval":     1,
-    "left_eyebrow":  2,
-    "right_eyebrow": 2,
-    "left_eye":      2,
-    "right_eye":     2,
-    "nose_bridge":   1,
-    "nose_tip":      2,
-    "lips_outer":    2,
-    "lips_inner":    1,
+    # Head & face structure
+    "head_outline":    2,
+    "face_oval":       1,
+    # Hair
+    "hair_flow":       1,
+    # Eyebrows
+    "left_eyebrow":    2,
+    "right_eyebrow":   2,
+    # Eyes
+    "left_eye":        2,
+    "right_eye":       2,
+    "left_iris":       1,
+    "right_iris":      1,
+    "left_eyelash":    1,
+    "right_eyelash":   1,
+    # Nose
+    "nose_bridge":     1,
+    "nose_tip":        2,
+    # Lips
+    "lips_outer":      2,
+    "lips_inner":      1,
 }
 _DEFAULT_THICKNESS = 2
 
