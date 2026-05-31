@@ -115,8 +115,10 @@ def run_capture(frame, lm, head_segmenter, drawing_cfg, output_dir, session):
 
     json_path = os.path.join(output_dir, f"portrait_{session:03d}.json")
     img_path  = os.path.join(output_dir, f"portrait_{session:03d}.png")
+    h_fr, w_fr = frame.shape[:2]
     save_portrait_json(strokes, json_path,
-                       source="webcam", image_shape=frame.shape[:2])
+                       name=f"portrait_{session:03d}",
+                       image_wh=(w_fr, h_fr))
     cv2.imwrite(img_path, portrait_img)
 
     log.info("Saved → %s", json_path)
