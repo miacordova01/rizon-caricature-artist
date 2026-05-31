@@ -38,11 +38,11 @@ camera:
 drawing:
   canvas_margin:  0.025    # metres — keep strokes this far from canvas edges
   scale:          0.85     # face-to-canvas scale factor (1.0 = full canvas height)
-  caricature_eye_scale:    1.60   # eyes enlarged from each pupil centre
-  caricature_brow_lift:    1.25   # eyebrows pushed up/out from each pupil
-  caricature_nose_scale:   1.35   # nose tip enlarged from nasal root
-  caricature_mouth_scale:  1.50   # lips stretched horizontally from centroid
-  caricature_jaw_scale:    1.05   # lower face elongated downward from nose level
+  caricature_eye_scale:    1.35   # eyes enlarged from each pupil centre
+  caricature_brow_lift:    1.20   # eyebrows pushed up/out from each pupil
+  caricature_nose_scale:   1.25   # nose tip enlarged from nasal root
+  caricature_mouth_scale:  1.25   # lips stretched horizontally from centroid
+  caricature_jaw_scale:    1.03   # lower face elongated downward from nose level
 
 head_segmentation:
   confidence:   0.55       # mask threshold — raise if background bleeds in

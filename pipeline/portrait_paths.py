@@ -316,11 +316,14 @@ def generate_portrait_paths(
     # detected face.  Segmenter output (head_outline arg) is no longer used for
     # the outline shape but can still influence hair-line anchors below.
     #
-    head_pts     = extend_face_oval_to_head(
-        landmarks.face_oval, landmarks.bbox_min, landmarks.bbox_max,
-        hair_lift=0.60, side_expand=0.20)
-    smoothed_hd  = smooth_curve(head_pts, n_total=120, closed=True)
-    outline      = _simplify(smoothed_hd, closed=True) if simplify else smoothed_hd
+    # Build head outline from the EXAGGERATED face oval so the jaw/cheek
+    # caricature carries through to the outer boundary.
+    # hair_lift / side_expand tuned for a natural rounded head shape.
+    head_pts    = extend_face_oval_to_head(
+        exag.face_oval, landmarks.bbox_min, landmarks.bbox_max,
+        hair_lift=0.38, side_expand=0.42)
+    smoothed_hd = smooth_curve(head_pts, n_total=200, closed=True)
+    outline     = _simplify(smoothed_hd, closed=True) if simplify else smoothed_hd
     _idx[0] += 1
     raw.append({
         "id":     f"stroke_{_idx[0]:04d}",
@@ -328,9 +331,8 @@ def generate_portrait_paths(
         "closed": True,
         "points": _to_uv(_closed_pts(outline)),
     })
-
-    # Face oval (drawn inside the head as the face boundary)
-    add("face_oval", exag.face_oval, closed=True, smooth_n=80)
+    # NOTE: face_oval is intentionally NOT drawn as a separate inner stroke —
+    # drawing both head_outline and face_oval creates an alien-mask look.
 
     # ── Eyebrows ──────────────────────────────────────────────────────────────
     add("left_eyebrow",  exag.left_eyebrow,  smooth_n=40)
@@ -352,9 +354,11 @@ def generate_portrait_paths(
             add_raw_pts("right_iris", _to_uv(iris_r), closed=True)
 
     # ── Eyelashes ─────────────────────────────────────────────────────────────
-    for lash in generate_eyelashes(exag.left_eye,  n_lashes=11):
+    for lash in generate_eyelashes(exag.left_eye,  n_lashes=11,
+                                   base_len=0.020, peak_scale=2.2):
         add_raw_pts("left_eyelash",  _to_uv(lash))
-    for lash in generate_eyelashes(exag.right_eye, n_lashes=11):
+    for lash in generate_eyelashes(exag.right_eye, n_lashes=11,
+                                   base_len=0.020, peak_scale=2.2):
         add_raw_pts("right_eyelash", _to_uv(lash))
 
     # ── Nose ─────────────────────────────────────────────────────────────────
@@ -365,10 +369,12 @@ def generate_portrait_paths(
     add("lips_outer", exag.lips_outer, closed=True, smooth_n=60)
     add("lips_inner", exag.lips_inner, closed=True, smooth_n=60)
 
-    # ── Hair flow lines (driven by synthetic head outline) ───────────────────
+    # ── Hair flow lines (anchored at scalp, flow down naturally) ─────────────
+    # Anchors are now restricted to the scalp zone only, so max_len can be
+    # long (full shoulder-length hair) without going off the canvas.
     for strand in generate_hair_lines(
             head_pts, landmarks.bbox_min, landmarks.bbox_max,
-            n_per_side=7, max_len=0.28):
+            n_per_side=8, max_len=0.40):
         add_raw_pts("hair_flow", _to_uv(strand))
 
     # ── Reorder strokes to minimise pen travel (contract req. 5) ──────────────

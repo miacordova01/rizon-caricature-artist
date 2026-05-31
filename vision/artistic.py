@@ -85,8 +85,8 @@ def extend_face_oval_to_head(
         face_oval:   List[np.ndarray],
         bbox_min:    np.ndarray,
         bbox_max:    np.ndarray,
-        hair_lift:   float = 0.60,
-        side_expand: float = 0.20) -> List[np.ndarray]:
+        hair_lift:   float = 0.38,
+        side_expand: float = 0.42) -> List[np.ndarray]:
     """
     Build a full head outline (skull + hair zone) by extending the face oval.
 
@@ -201,7 +201,7 @@ def generate_eyelashes(eye_pts: List[np.ndarray],
 
 def generate_iris(pupil:       np.ndarray,
                   eye_pts:     List[np.ndarray],
-                  radius_frac: float = 0.40,
+                  radius_frac: float = 0.25,
                   n_pts:       int = 20) -> List[np.ndarray]:
     """
     Draw the iris as a smooth circle centred on the pupil landmark.
@@ -266,9 +266,12 @@ def generate_hair_lines(head_outline:  List[np.ndarray],
     face_cy = float((face_bbox_min[1] + face_bbox_max[1]) / 2)
     face_h  = float(face_bbox_max[1] - face_bbox_min[1])
 
-    # Anchor zone: from above forehead to slightly below chin
-    y_top    = max(0.0, float(face_bbox_min[1]) - face_h * 0.70)
-    y_bottom = min(1.0, float(face_bbox_max[1]) + face_h * 0.10)
+    # Anchor zone: only the SCALP / HAIR region (above and just at the hairline).
+    # Anchoring from the jaw produces hair strands starting at chin-level and
+    # shooting far off the bottom of the canvas.  Hair should START at the scalp
+    # and flow DOWN from there.
+    y_top    = max(0.0, float(face_bbox_min[1]) - face_h * 0.90)
+    y_bottom = min(1.0, float(face_bbox_min[1]) + face_h * 0.12)
 
     left_pts  = sorted(
         [p for p in pts if p[0] < face_cx and y_top <= p[1] <= y_bottom],
