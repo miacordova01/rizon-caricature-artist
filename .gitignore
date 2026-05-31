@@ -13,3 +13,4 @@ meshes/*.obj
 models/*.task
 models/*.tflite
 *.log
+output/
